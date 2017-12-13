@@ -12,6 +12,7 @@ from django.http import (
     FileResponse, HttpRequest, HttpResponse, HttpResponseNotFound,
     HttpResponsePermanentRedirect, HttpResponseRedirect, StreamingHttpResponse,
 )
+from django.middleware.cache import UpdateCacheMiddleware
 from django.middleware.clickjacking import XFrameOptionsMiddleware
 from django.middleware.common import (
     BrokenLinkEmailsMiddleware, CommonMiddleware,
@@ -19,6 +20,8 @@ from django.middleware.common import (
 from django.middleware.gzip import GZipMiddleware
 from django.middleware.http import ConditionalGetMiddleware
 from django.test import RequestFactory, SimpleTestCase, override_settings
+
+from .timeout_dummy import TimeoutDummyCache
 
 int2byte = struct.Struct(">B").pack
 
@@ -844,3 +847,22 @@ class ETagGZipMiddlewareTest(SimpleTestCase):
             HttpResponse(self.compressible_string)
         )
         self.assertEqual(next_response.status_code, 304)
+
+class InfiniteMiddlewareCacheTimeoutTest(SimpleTestCase):
+    @override_settings(CACHE_MIDDLEWARE_SECONDS=None, ALLOWED_HOSTS=['test'])
+    def test_None_default_gets_passed_through(self):
+        myCache = TimeoutDummyCache()
+
+        self.assertEqual([], myCache.get_last_timeout())
+
+        middleware = UpdateCacheMiddleware()
+        middleware.cache = myCache
+        middleware._should_update_cache = lambda req, res: True
+
+        request = HttpRequest()
+        request.META['SERVER_NAME'] = 'test'
+        request.META['SERVER_PORT'] = 80
+
+        middleware.process_response(request, HttpResponse())
+
+        self.assertEqual(None, myCache.get_last_timeout())
